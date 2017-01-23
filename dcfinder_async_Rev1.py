@@ -1,6 +1,5 @@
 import os
 import re
-import concurrent.futures
 from bs4 import BeautifulSoup
 import requests
 import asyncio
@@ -41,42 +40,45 @@ class DCFinder():
         if search_depth < 0:
             search_depth = search_pos // 10000 + 1
 
+        # create dictionary of pagecounts
+        futures = []
         for pos_idx in range(search_depth):
-            await self.crawl_searchAsync(board_url, keyword, search_pos - (pos_idx * 10000), search_type)
+            pos = search_pos - (pos_idx * 10000)
+            futures.append(self.get_page_counts(board_url, keyword, pos, search_type))
+        pagecount_list = await asyncio.gather(*futures)
 
-    async def crawl_searchAsync(self, board_url, keyword, search_pos, s_type):
-        if search_pos < 0:
-            search_pos = 0
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            search_query = "&page={page_num}&search_pos=-{search_pos}&s_type={s_type}&s_keyword={s_keyword}"
-            # get last page of this search
-            request_url = board_url + search_query.format(page_num=1, search_pos=search_pos, s_type=s_type, s_keyword=keyword)
-            resp = requests.get(request_url)
-            parser = BeautifulSoup(resp.text, "html.parser")
-            nexts = parser.find_all('a', {'class': 'b_next'})
-            if len(nexts) > 1:
-                # board len > 10
-                page_len = int(self.page_regex.search(nexts[-2].get("href")).group(1))
-            else:
-                page_btns = parser.find('div', {'id': 'dgn_btn_paging'})
-                if page_btns:
-                    page_len = self.count_pages(page_btns)
-
-            # get articles of page1, which already loaded
-            ret_list = self.get_articles(parser)
-
-            # get rest of page
-            futures = []
-            loop = asyncio.get_event_loop()
-            for page_idx in range(2, max(page_len + 1, 2)):
-                req_url = board_url + search_query.format(page_num=page_idx, search_pos=search_pos, s_type=s_type, s_keyword=keyword)
+        # construct EVERY fetch
+        futures = []
+        for pos_idx in range(search_depth):
+            pos = search_pos - (pos_idx * 10000)
+            for page_num in range(1, pagecount_list[pos_idx] + 1):
+                req_url = board_url + "&page={page_num}&search_pos=-{search_pos}&s_type={s_type}&s_keyword={s_keyword}"
+                req_url = req_url.format(page_num=page_num, search_pos=pos, s_type=search_type, s_keyword=keyword)
                 futures.append(loop.run_in_executor(None, requests.get, req_url))
-            for resp in await asyncio.gather(*futures):
-                ret_list.extend(self.get_articles(BeautifulSoup(resp.text, "html.parser")))
+        resp_lists = await asyncio.gather(*futures)
 
-            for idx in ret_list:
-                print(idx)
+        for resp in resp_lists:
+            for article in self.get_articles(BeautifulSoup(resp.text, "html.parser")):
+                print(article)
+
+    async def get_page_counts(self, board_url, keyword, search_pos, s_type):
+        search_query = "&page=1&search_pos=-{search_pos}&s_type={s_type}&s_keyword={s_keyword}"
+        # get last page of this search
+        request_url = board_url + search_query.format(search_pos=search_pos, s_type=s_type, s_keyword=keyword)
+        resp = requests.get(request_url)
+        parser = BeautifulSoup(resp.text, "html.parser")
+        nexts = parser.find_all('a', {'class': 'b_next'})
+        if len(nexts) == 3:
+            # last page btn exists
+            page_len = int(self.page_regex.search(nexts[-2].get("href")).group(1))
+        elif len(nexts) == 2:
+            # case not happens(maybe)
+            raise NotImplementedError
+        else:
+            page_btns = parser.find('div', {'id': 'dgn_btn_paging'})
+            if page_btns:
+                page_len = self.count_pages(page_btns)
+        return page_len
 
     @staticmethod
     def count_pages(bs_parsed):

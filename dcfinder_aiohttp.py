@@ -1,9 +1,8 @@
 import os
 import re
-import concurrent.futures
 from bs4 import BeautifulSoup
-import requests
 import asyncio
+import aiohttp
 
 
 search_types = {"전체": "search_all",
@@ -15,7 +14,7 @@ search_types = {"전체": "search_all",
 검색타입 = search_types["전체"]
 갤러리 = "rhythmgame"
 키워드 = "로리"
-깊이 = 10
+깊이 = 100
 
 
 def _clear():
@@ -34,8 +33,8 @@ class DCFinder():
         if not search_pos:
             board_url = self.base_url + "/board/lists/?id={gall_id}".format(gall_id=gallery_id)
             search_query = "&s_type={s_type}&s_keyword={s_keyword}".format(s_type=search_type, s_keyword=keyword)
-            resp = requests.get(board_url + search_query)
-            parser = BeautifulSoup(resp.text, "html.parser")
+            resp = await aiohttp.get(board_url + search_query)
+            parser = BeautifulSoup(await resp.text(), "html.parser")
             next_search_url = parser.find("div", {"id": "dgn_btn_paging"}).find_all("a")[-1].get("href")
             search_pos = int(self.searchpos_regex.search(next_search_url).group(1)) + 10000
         if search_depth < 0:
@@ -48,35 +47,41 @@ class DCFinder():
         if search_pos < 0:
             search_pos = 0
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            search_query = "&page={page_num}&search_pos=-{search_pos}&s_type={s_type}&s_keyword={s_keyword}"
-            # get last page of this search
-            request_url = board_url + search_query.format(page_num=1, search_pos=search_pos, s_type=s_type, s_keyword=keyword)
-            resp = requests.get(request_url)
-            parser = BeautifulSoup(resp.text, "html.parser")
-            nexts = parser.find_all('a', {'class': 'b_next'})
-            if len(nexts) > 1:
-                # board len > 10
-                page_len = int(self.page_regex.search(nexts[-2].get("href")).group(1))
-            else:
-                page_btns = parser.find('div', {'id': 'dgn_btn_paging'})
-                if page_btns:
-                    page_len = self.count_pages(page_btns)
+        search_query = "&page={page_num}&search_pos=-{search_pos}&s_type={s_type}&s_keyword={s_keyword}"
+        # get last page of this search
+        request_url = board_url + search_query.format(page_num=1, search_pos=search_pos, s_type=s_type, s_keyword=keyword)
+        resp = await aiohttp.get(request_url)
+        parser = BeautifulSoup(await resp.text(), "html.parser")
+        nexts = parser.find_all('a', {'class': 'b_next'})
+        if len(nexts) > 1:
+            # board len > 10
+            page_len = int(self.page_regex.search(nexts[-2].get("href")).group(1))
+        else:
+            page_btns = parser.find('div', {'id': 'dgn_btn_paging'})
+            if page_btns:
+                page_len = self.count_pages(page_btns)
 
-            # get articles of page1, which already loaded
-            ret_list = self.get_articles(parser)
+        # get articles of page1, which already loaded
+        ret_list = self.get_articles(parser)
 
-            # get rest of page
-            futures = []
-            loop = asyncio.get_event_loop()
-            for page_idx in range(2, max(page_len + 1, 2)):
-                req_url = board_url + search_query.format(page_num=page_idx, search_pos=search_pos, s_type=s_type, s_keyword=keyword)
-                futures.append(loop.run_in_executor(None, requests.get, req_url))
-            for resp in await asyncio.gather(*futures):
-                ret_list.extend(self.get_articles(BeautifulSoup(resp.text, "html.parser")))
+        # get rest of page
+        futures = []
+        for page_idx in range(2, max(page_len + 1, 2)):
+            req_url = board_url + search_query.format(page_num=page_idx, search_pos=search_pos, s_type=s_type, s_keyword=keyword)
+            futures.append(aiohttp.get(req_url))
 
-            for idx in ret_list:
-                print(idx)
+        resps = await asyncio.gather(*futures)
+
+        futures = []
+        for resp in resps:
+            futures.append(resp.text())
+        texts = await asyncio.gather(*futures)
+
+        for text in texts:
+            ret_list.extend(self.get_articles(BeautifulSoup(text, "html.parser")))
+
+        for idx in ret_list:
+            print(idx)
 
     @staticmethod
     def count_pages(bs_parsed):
