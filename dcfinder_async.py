@@ -31,8 +31,8 @@ class DCFinder():
         """
         find & print list of articles
         """
+        board_url = self.base_url + "/board/lists/?id={gall_id}".format(gall_id=gallery_id)
         if not search_pos:
-            board_url = self.base_url + "/board/lists/?id={gall_id}".format(gall_id=gallery_id)
             search_query = "&s_type={s_type}&s_keyword={s_keyword}".format(s_type=search_type, s_keyword=keyword)
             resp = requests.get(board_url + search_query)
             parser = BeautifulSoup(resp.text, "html.parser")

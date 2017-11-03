@@ -14,7 +14,7 @@ search_types = {"전체": "search_all",
 검색타입 = search_types["전체"]
 갤러리 = "rhythmgame"
 키워드 = "로리"
-깊이 = 100
+깊이 = 10
 
 
 def _clear():

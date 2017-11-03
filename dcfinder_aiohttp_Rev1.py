@@ -12,9 +12,10 @@ search_types = {"전체": "search_all",
                 "제목+내용": "search_subject_memo"}
 
 검색타입 = search_types["전체"]
-갤러리 = "rhythmgame"
-키워드 = "로리"
-깊이 = 100
+갤러리 = "kancolle"
+키워드 = "팬티"
+search_pos = 0
+깊이 = 20
 
 
 def _clear():
@@ -30,8 +31,8 @@ class DCFinder():
         """
         find & print list of articles
         """
+        board_url = self.base_url + "/board/lists/?id={gall_id}".format(gall_id=gallery_id)
         if not search_pos:
-            board_url = self.base_url + "/board/lists/?id={gall_id}".format(gall_id=gallery_id)
             search_query = "&s_type={s_type}&s_keyword={s_keyword}".format(s_type=search_type, s_keyword=keyword)
             resp = await aiohttp.get(board_url + search_query)
             parser = BeautifulSoup(await resp.text(), "html.parser")
@@ -113,7 +114,7 @@ class DCFinder():
 
 async def main():
     dcfinder = DCFinder()
-    await dcfinder.findAsync(갤러리, 키워드, 검색타입, search_depth=깊이)
+    await dcfinder.findAsync(갤러리, 키워드, 검색타입, search_pos=search_pos, search_depth=깊이)
 
 
 if __name__ == '__main__':
